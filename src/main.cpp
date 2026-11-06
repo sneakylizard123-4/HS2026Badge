@@ -1,46 +1,25 @@
 #include <Arduino.h>
-#include "epd_driver.h"
-#include "button_manager.h"
-#include "led_bar.h"
-#include "app_switcher.h"
-
-// Global objects
-EpdDriver epd;
-ButtonManager buttons;
-LedBar leds;
-AppSwitcher switcher;
+#include <SPI.h>
+#include "epd97.h"
+#include "pins.h"
 
 void setup() {
     Serial.begin(115200);
-    delay(500);
+    delay(1500);
+    if (!epd_begin()) return;
 
-    // Initialise EPD
-    epd.begin();
+    Serial.println("\nBOOT OK");
+    Serial.printf("Free heap: %u\n", ESP.getFreeHeap());
 
-    // Initialise LEDs
-    leds.begin();
-    leds.fill({0, 1, 1});  // Splash colour
-    leds.show();
+    Serial.println("Initializing SPI...");
 
-    // Draw splash screen
-    epd.clear();
-    epd.drawPng("/assets/supercon-x-splash.png");
-    epd.update();
+    SPI.begin(EDP_SCLK, -1, EDP_MOSI, -1);
 
-    // Initialise buttons and app switcher
-    buttons.begin();
-    switcher.begin(&epd, &buttons, &leds);
-
-    Serial.println("Badge ready");
+    Serial.println("SPI initialized successfully!");
+    epd_clear_screen();
+    epd_set_keep_awake(true);
 }
 
 void loop() {
-    // Update button states
-    buttons.update();
-
-    // Run the active app
-    switcher.update();
-
-    // Small delay to avoid busy‑looping
-    delay(5);
+    delay(1000);
 }
