@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
-#include "EPD_Driver_GU_large.h"   // Pervasive Displays library
+#include <EPD_Driver.h>
+#include <EPD_Configuration.h>
 
 class EpdDriver {
 public:
@@ -21,4 +22,7 @@ private:
     static const uint8_t SCL = 21;
     static const uint8_t SDA = 47;
     static const uint8_t PWR_EN = 48;
+    
+    // EPD driver instance
+    EPD_Driver epd_display;
 };
