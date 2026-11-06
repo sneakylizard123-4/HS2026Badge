@@ -1,22 +1,46 @@
 #include <Arduino.h>
-#include "pins.h"
+#include "epd_driver.h"
+#include "button_manager.h"
+#include "led_bar.h"
+#include "app_switcher.h"
 
-// Minimal test: blink USER_LED and print to serial
+// Global objects
+EpdDriver epd;
+ButtonManager buttons;
+LedBar leds;
+AppSwitcher switcher;
 
 void setup() {
-  Serial.begin(115200);
-  while (!Serial) { ; } // wait for serial monitor
-  Serial.println("\n=== HS2026 Badge Minimal Test ===");
-  pinMode(USER_LED, OUTPUT);
-  digitalWrite(USER_LED, LOW);
+    Serial.begin(115200);
+    delay(500);
+
+    // Initialise EPD
+    epd.begin();
+
+    // Initialise LEDs
+    leds.begin();
+    leds.fill({0, 1, 1});  // Splash colour
+    leds.show();
+
+    // Draw splash screen
+    epd.clear();
+    epd.drawPng("/assets/supercon-x-splash.png");
+    epd.update();
+
+    // Initialise buttons and app switcher
+    buttons.begin();
+    switcher.begin(&epd, &buttons, &leds);
+
+    Serial.println("Badge ready");
 }
 
 void loop() {
-  static unsigned long lastToggle = 0;
-  if (millis() - lastToggle >= 500) {
-    lastToggle = millis();
-    bool state = digitalRead(USER_LED);
-    digitalWrite(USER_LED, !state);
-    Serial.printf("LED toggled to %s\n", state ? "OFF" : "ON");
-  }
+    // Update button states
+    buttons.update();
+
+    // Run the active app
+    switcher.update();
+
+    // Small delay to avoid busy‑looping
+    delay(5);
 }

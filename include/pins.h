@@ -58,7 +58,7 @@
 #define SAO_SCL         18
 
 /* Display dimensions (for e‑ink) */
-#define EINK_WIDTH      250
-#define EINK_HEIGHT     122
+#define EINK_WIDTH      672
+#define EINK_HEIGHT     960
 
 #endif // PINS_H
