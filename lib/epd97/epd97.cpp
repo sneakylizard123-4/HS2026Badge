@@ -933,5 +933,101 @@ const char* epd_panel_name(void)
 uint32_t epd_last_panel_ms(void) { return s_last_panel_ms; }
 uint32_t epd_last_frame_ms(void) { return s_last_frame_ms; }
 
+void epd_clear(void)
+{
+  if (s_bw) memset(s_bw, 0, EPD_PLANE_BYTES);
+  if (s_red) memset(s_red, 0, EPD_PLANE_BYTES);
+  s_frame_has_red = false;
+}
+
+void epd_fill(epd_color_t c)
+{
+  if (!s_bw || !s_red) return;
+  const uint8_t bw = (c == EPD_BLACK) ? 0xFFu : 0x00u;
+  const uint8_t rd = (c == EPD_RED) ? 0xFFu : 0x00u;
+  memset(s_bw, bw, EPD_PLANE_BYTES);
+  memset(s_red, rd, EPD_PLANE_BYTES);
+  s_frame_has_red = (c == EPD_RED);
+}
+
+void epd_pixel(int x, int y, epd_color_t c)
+{
+  if (!s_bw || !s_red) return;
+  if (x < 0 || y < 0 || x >= EPD_W || y >= EPD_H) return;
+  const size_t off = (size_t)y * EPD_STRIDE + (size_t)x / 8u;
+  const uint8_t mask = (uint8_t)(1u << (7u - (uint8_t)(x % 8u)));
+  uint8_t* plane = (c == EPD_RED) ? s_red : s_bw;
+  if (c == EPD_WHITE) {
+    plane[off] &= (uint8_t)~mask;
+  } else {
+    plane[off] |= mask;
+  }
+  if (c == EPD_RED) s_frame_has_red = true;
+}
+
+void epd_fill_rect(int x, int y, int w, int h, epd_color_t c)
+{
+  if (w <= 0 || h <= 0) return;
+  for (int yy = 0; yy < h; yy++) {
+    for (int xx = 0; xx < w; xx++) {
+      epd_pixel(x + xx, y + yy, c);
+    }
+  }
+}
+
+void epd_rect(int x, int y, int w, int h, int thickness, epd_color_t c)
+{
+  if (w <= 0 || h <= 0 || thickness <= 0) return;
+  epd_fill_rect(x, y, w, thickness, c);
+  epd_fill_rect(x, y + thickness, thickness, h - thickness, c);
+  epd_fill_rect(x + w - thickness, y + thickness, thickness, h - thickness, c);
+  epd_fill_rect(x, y + h - thickness, w, thickness, c);
+}
+
+void epd_hline(int x, int y, int w, int thickness, epd_color_t c)
+{
+  epd_fill_rect(x, y, w, thickness, c);
+}
+
+void epd_vline(int x, int y, int h, int thickness, epd_color_t c)
+{
+  epd_fill_rect(x, y, thickness, h, c);
+}
+
+int epd_text(int x, int y, const char* s, epd_color_t c, int scale)
+{
+  if (!s) return x;
+  int dx = x;
+  for (const char* p = s; *p; ++p) {
+    if (*p == '\n') {
+      y += 8 * scale;
+      dx = x;
+      continue;
+    }
+    if (*p >= 0x20 && *p < 0x7F) {
+      dx += 6 * scale;
+    }
+  }
+  (void)y; (void)c; (void)scale;
+  return dx;
+}
+
+int epd_printf(int x, int y, epd_color_t c, int scale, const char* fmt, ...)
+{
+  (void)x; (void)y; (void)c; (void)scale; (void)fmt;
+  return x;
+}
+
+int epd_text_width(const char* s, int scale)
+{
+  if (!s) return 0;
+  int w = 0;
+  for (const char* p = s; *p; ++p) {
+    if (*p == '\n') continue;
+    if (*p >= 0x20 && *p < 0x7F) w += 6 * scale;
+  }
+  return w;
+}
+
 uint8_t* epd_plane_bw(void)  { return s_bw; }
 uint8_t* epd_plane_red(void) { return s_red; }
