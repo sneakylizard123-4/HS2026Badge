@@ -5,7 +5,15 @@
 #include "epd97.h"
 #include "pins.h"
 
-static void *pngOpen(const char *filename, int32_t *size)
+namespace {
+
+constexpr uint8_t kButtonPins[] = {USER_A, USER_B, MENU_PLUS, MENU_MINUS};
+constexpr size_t kButtonCount = sizeof(kButtonPins) / sizeof(kButtonPins[0]);
+
+bool lastButtonStates[kButtonCount] = {false, false, false, false};
+int currentIndex = 0;
+
+void *pngOpen(const char *filename, int32_t *size)
 {
     static File myfile;
     myfile = LittleFS.open(filename, FILE_READ);
@@ -17,7 +25,7 @@ static void *pngOpen(const char *filename, int32_t *size)
     return &myfile;
 }
 
-static void pngClose(void *handle)
+void pngClose(void *handle)
 {
     File *pFile = static_cast<File *>(handle);
     if (pFile) {
@@ -25,7 +33,7 @@ static void pngClose(void *handle)
     }
 }
 
-static int32_t pngRead(PNGFILE *handle, uint8_t *buffer, int32_t length)
+int32_t pngRead(PNGFILE *handle, uint8_t *buffer, int32_t length)
 {
     File *pFile = static_cast<File *>(handle->fHandle);
     if (!pFile) {
@@ -34,7 +42,7 @@ static int32_t pngRead(PNGFILE *handle, uint8_t *buffer, int32_t length)
     return pFile->read(buffer, length);
 }
 
-static int32_t pngSeek(PNGFILE *handle, int32_t position)
+int32_t pngSeek(PNGFILE *handle, int32_t position)
 {
     File *pFile = static_cast<File *>(handle->fHandle);
     if (!pFile) {
@@ -43,7 +51,7 @@ static int32_t pngSeek(PNGFILE *handle, int32_t position)
     return pFile->seek(position);
 }
 
-static int PNGDraw(PNGDRAW *pDraw)
+int PNGDraw(PNGDRAW *pDraw)
 {
     PNG *png = reinterpret_cast<PNG *>(pDraw->pUser);
     if (!png) {
@@ -82,7 +90,7 @@ static int PNGDraw(PNGDRAW *pDraw)
     return 1;
 }
 
-static bool displayPng(const char *path)
+bool displayPng(const char *path)
 {
     PNG png;
     const int rc = png.open(path, pngOpen, pngClose, pngRead, pngSeek, PNGDraw);
@@ -109,11 +117,101 @@ static bool displayPng(const char *path)
     return true;
 }
 
+bool buttonPressed(uint8_t pin)
+{
+    return digitalRead(pin) == LOW;
+}
+
+int countPngFiles()
+{
+    int count = 0;
+
+    File dir = LittleFS.open("/assets");
+    if (dir && dir.isDirectory()) {
+        while (File entry = dir.openNextFile()) {
+            const String name = entry.name();
+            if (!entry.isDirectory() && name.endsWith(".png")) {
+                ++count;
+            }
+            entry.close();
+        }
+        dir.close();
+    }
+
+    if (count > 0) {
+        return count;
+    }
+
+    File rootDir = LittleFS.open("/");
+    if (!rootDir || !rootDir.isDirectory()) {
+        return 0;
+    }
+
+    while (File entry = rootDir.openNextFile()) {
+        const String name = entry.name();
+        if (!entry.isDirectory() && name.endsWith(".png")) {
+            ++count;
+        }
+        entry.close();
+    }
+    rootDir.close();
+    return count;
+}
+
+bool showImageIndex(int index)
+{
+    const char *paths[] = {
+        "/assets/%03d.png",
+        "/%03d.png"
+    };
+
+    char path[64];
+    bool ok = false;
+    for (size_t i = 0; i < 2; ++i) {
+        snprintf(path, sizeof(path), paths[i], index);
+        epd_clear_screen();
+        epd_clear();
+        if (displayPng(path)) {
+            ok = true;
+            Serial.printf("Displayed %s\n", path);
+            refresh_display(EPD_SLOW);
+            break;
+        }
+    }
+
+    if (!ok) {
+        epd_fill(EPD_WHITE);
+        epd_text(40, 40, "Missing", EPD_BLACK, 6);
+        epd_text(40, 120, "PNG", EPD_BLACK, 6);
+        refresh_display(EPD_SLOW);
+    }
+    return ok;
+}
+
+void handleNavigation(int delta)
+{
+    const int total = countPngFiles();
+    if (total <= 0) {
+        currentIndex = 0;
+        showImageIndex(0);
+        return;
+    }
+
+    currentIndex = (currentIndex + delta + total) % total;
+    showImageIndex(currentIndex);
+}
+
+}  // namespace
+
 void setup()
 {
     Serial.begin(115200);
     delay(1000);
     Serial.println("HS2026 badge boot");
+
+    for (size_t i = 0; i < kButtonCount; ++i) {
+        pinMode(kButtonPins[i], INPUT_PULLUP);
+    }
 
     if (!LittleFS.begin(true)) {
         Serial.println("LittleFS mount failed");
@@ -125,22 +223,40 @@ void setup()
         return;
     }
 
-    epd_clear_screen();
-    epd_clear();
-
-    if (displayPng("/assets/supercon-x-splash.png")) {
-        Serial.println("Displayed PNG");
-    } else {
-        Serial.println("Displaying fallback text");
+    int total = countPngFiles();
+    if (total <= 0) {
+        Serial.println("No PNG files found in /assets");
         epd_fill(EPD_WHITE);
-        epd_text(40, 40, "HS2026", EPD_BLACK, 6);
+        epd_text(40, 40, "No PNG", EPD_BLACK, 6);
+        refresh_display(EPD_SLOW);
+        return;
     }
 
-    refresh_display(EPD_SLOW);
+    currentIndex = 0;
+    showImageIndex(currentIndex);
 }
 
 void loop()
 {
-    delay(1000);
+    bool wasPressed[kButtonCount];
+    for (size_t i = 0; i < kButtonCount; ++i) {
+        wasPressed[i] = lastButtonStates[i];
+        lastButtonStates[i] = buttonPressed(kButtonPins[i]);
+    }
+
+    if (buttonPressed(USER_A) && !wasPressed[0]) {
+        handleNavigation(-1);
+    }
+    if (buttonPressed(USER_B) && !wasPressed[1]) {
+        handleNavigation(1);
+    }
+    if (buttonPressed(MENU_PLUS) && !wasPressed[2]) {
+        handleNavigation(-1);
+    }
+    if (buttonPressed(MENU_MINUS) && !wasPressed[3]) {
+        handleNavigation(1);
+    }
+
+    delay(50);
 }
 
